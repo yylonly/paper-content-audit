@@ -56,7 +56,61 @@ def check_contributions(content_by_page: List[Dict], sections: Dict = None) -> D
     # 查找所有贡献语句
     contribution_sentences = []
 
-    # 英文关键词 - 在关键章节中查找
+    # 优先从引言(1.4.2 主要创新点)和结论(6.2 主要创新点)中提取编号贡献点
+    innovation_section = intro_text + "\n" + conclusion_text
+
+    # 提取"主要创新点"之后的内容
+    innovation_section_match = re.search(
+        r'本文的主要创新点概括如下[.\n]*(.*?)(?=\n\s*(?:1\.5|论文结构|本章小结|\n\d+\s+第一章|$))',
+        innovation_section,
+        re.DOTALL
+    )
+
+    # 如果找到 innovation section，直接使用其贡献
+    found_innovation_section = False
+    if innovation_section_match:
+        innovation_section = innovation_section_match.group(1)
+        found_innovation_section = True
+        # 提取编号贡献点
+        numbered_matches = re.findall(r'[（(]\d+[）)]\s*([^\n]{10,300}?)[。\n]', innovation_section)
+        if numbered_matches:
+            contribution_sentences.extend([m.strip() for m in numbered_matches if len(m.strip()) > 10])
+
+        # "其一"、"其二"、"其三"、"其四"格式的贡献 - 中文论文
+        yiqi_patterns = [
+            r'其[一二三四五六七八九十]+[、\s]+([^其\n]{20,300}?)[。\n]',
+        ]
+        for pattern in yiqi_patterns:
+            matches = re.findall(pattern, innovation_section)
+            contribution_sentences.extend([m.strip() for m in matches if len(m.strip()) > 15])
+
+    # Bullet point (•) 格式的贡献 - 支持跨行匹配 (英文论文)
+    # 这个提取逻辑应该在if块外执行，因为无论中文还是英文论文都可能使用bullet格式
+    bullet_patterns = [
+        # 匹配 bullet + 内容（可能跨多行直到下一个bullet或空行）
+        r'[•\-\*]\s*([^\n]+(?:\n(?!\s*[•\-\*])[^\n]*)*)',
+    ]
+    for pattern in bullet_patterns:
+        matches = re.findall(pattern, innovation_section, re.MULTILINE)
+        # 清理每条匹配：合并多行，移除换行符
+        for m in matches:
+            cleaned = ' '.join(m.split('\n')).strip()
+            if len(cleaned) > 15:
+                contribution_sentences.append(cleaned)
+
+    # 如果没有找到贡献点，继续使用其他方法...
+    if found_innovation_section and contribution_sentences:
+        # 去重并清理
+        unique_contributions = list(set(contribution_sentences))
+        contribution_sentences = [c for c in unique_contributions if len(c) >= 15][:10]
+        # 直接返回
+        return {
+            'contributions': contribution_sentences,
+            'issues': [],
+            'warnings': []
+        }
+
+    # 继续使用其他提取方法...
     for keyword in contribution_keywords_en:
         pattern = rf'[^.!?]*\b{keyword}\b[^.!?]*[.!?]'
         matches = re.findall(pattern, key_sections, re.IGNORECASE)
@@ -68,6 +122,52 @@ def check_contributions(content_by_page: List[Dict], sections: Dict = None) -> D
         matches = re.findall(pattern, key_sections)
         contribution_sentences.extend(matches)
 
+    # 编号贡献点模式
+    numbered_patterns = [
+        r'[（(]\d+[）)]\s*([^\n]{10,300}?)[。\n]',
+    ]
+    for pattern in numbered_patterns:
+        matches = re.findall(pattern, innovation_section)
+        contribution_sentences.extend([m.strip() for m in matches if len(m.strip()) > 15])
+
+    # "第一，" "第二，"格式的贡献
+    first_second_patterns = [
+        r'第[一二三四五六七八九十]+[、，]\s*([^\n]{20,300}?)[。\n]',
+    ]
+    for pattern in first_second_patterns:
+        matches = re.findall(pattern, innovation_section)
+        contribution_sentences.extend([m.strip() for m in matches if len(m.strip()) > 15])
+
+    # 尝试从摘要中提取贡献点列表
+    list_patterns = [
+        r'[（(]\d+[）)]\s*(.+?)[。；;]',
+        r'\d+[.、]\s*(.+?)[。；;]',
+    ]
+    for pattern in list_patterns:
+        matches = re.findall(pattern, abstract_text)
+        contribution_sentences.extend(matches)
+
+    # English contribution patterns
+    english_contribution_patterns = [
+        r'(?:First|Secondly|Second)[,\s]+([^.!?]+[!.?])',
+        r'(?:Third)[,\s]+([^.!?]+[!.?])',
+        r'(?:Finally|Lastly|Last)[,\s]+([^.!?]+[!.?])',
+    ]
+    for pattern in english_contribution_patterns:
+        matches = re.findall(pattern, abstract_text, re.IGNORECASE)
+        contribution_sentences.extend(matches)
+
+    # Structured contribution patterns in intro/conclusion
+    structured_patterns = [
+        r'本文[提出|贡献|主要]*(.+?)[。]',
+        r'我们[提出|方法|贡献]*(.+?)[。]',
+        r'创新点[：:]\s*(.+?)[。]',
+        r'主要[贡献|创新]?[：:]\s*(.+?)[。]',
+    ]
+    for pattern in structured_patterns:
+        matches = re.findall(pattern, key_sections)
+        contribution_sentences.extend(matches)
+
     # 尝试从摘要中提取贡献点列表 (1) ... (2) ... (3) ...
     list_patterns = [
         r'[（(]\d+[）)]\s*(.+?)[。；;]',
@@ -76,6 +176,14 @@ def check_contributions(content_by_page: List[Dict], sections: Dict = None) -> D
     for pattern in list_patterns:
         matches = re.findall(pattern, abstract_text)
         contribution_sentences.extend(matches)
+
+    # "其一"、"其二"等格式在摘要中
+    yiqi_patterns = [
+        r'其[一二三四五六七八九十]+[、]\s*([^其。]{20,200}?)[。]',
+    ]
+    for pattern in yiqi_patterns:
+        matches = re.findall(pattern, abstract_text)
+        contribution_sentences.extend([m.strip() for m in matches if len(m.strip()) > 15])
 
     # English contribution patterns: First, ... Second, ... Third, ... Finally, ...
     english_contribution_patterns = [

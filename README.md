@@ -1,230 +1,170 @@
-# Paper Content Audit Tool
+# Paper Content Audit Tool / 论文内容审核工具
 
-A skill for auditing academic papers, evaluating main contributions, methodological innovation, experimental evaluation, and detailed comparison with baselines.
+A Claude Code skill for auditing academic papers, evaluating main contributions, methodological innovation, experimental evaluation, and detailed comparison with baselines.
 
-## Features
+一个用于审核学术论文的Claude Code工具，主要贡献评估、方法创新性、实验评估以及与baseline的详细对比。
 
-| Audit Item | Type | Description |
-|------------|------|-------------|
-| Main Contributions | ✅/❌ | Whether contributions are clear, specific, and verifiable |
-| Method Innovation | ✅/❌ | Whether innovations have corresponding method improvements |
-| Method-Innovation Mapping | ⚠️ Warning | Whether each innovation has detailed method description |
-| Method vs Baseline | ✅ | Detailed comparison of improvements and performance metrics |
-| Baseline Comparison | ❌ Issue | Whether baseline methods are included in evaluation |
-| Experiment Completeness | ⚠️ Warning | Whether key scenarios and ablation studies are covered |
-| Incremental Improvement | ⚠️ Warning | Whether incremental improvements are mislabeled as "novel" |
-| Missing Comparisons | ⚠️ Warning | Whether any methods or datasets are missing |
+## Features / 功能特点
 
-## Quick Start
+| Feature | Description | 说明 |
+|---------|-------------|------|
+| 贡献点评估 | Extract and evaluate main contributions | 提取并评估论文主要贡献 |
+| 创新点识别 | Identify method innovations | 识别方法创新点 |
+| Baseline对比 | Compare with existing methods | 与现有方法对比 |
+| 实验完整性 | Verify experiment coverage | 验证实验完整性 |
+| 增量改进识别 | Distinguish novel vs incremental | 区分创新与增量改进 |
+| 多格式报告 | HTML/Markdown/bilingual reports | 多格式报告输出 |
 
-### Basic Usage
+## Installation / 安装
 
-```bash
-python3 scripts/paper_audit_script.py <pdf_path> [output_dir]
-# or
-python3 scripts/paper_audit_script.py --text "<paper_text>" [output_dir]
-```
+This is a Claude Code skill. Install it by placing the `paper-content-audit` folder in your Claude Code skills directory.
 
-### Parameters
-
-- `pdf_path`: Path to the paper PDF file
-- `--text` or `-t`: Directly pass paper text content
-- `output_dir`: Optional, output directory for the report (default: current directory)
-
-### Examples
+这是Claude Code技能。将其放入Claude Code的skills目录即可使用。
 
 ```bash
-python3 paper_audit_script.py /path/to/paper.pdf
-python3 paper_audit_script.py --text "Full paper text content..."
-python3 paper_audit_script.py paper.pdf ./output
+# Clone or copy to your skills directory
+# 克隆或复制到skills目录
 ```
 
-## Dependencies
+## Quick Start / 快速开始
 
-Install multiple PDF extraction libraries for best Chinese and English support:
+### Claude Code Terminal Direct Analysis (Recommended) / Claude Code终端直接分析（推荐）
+
+当你在Claude Code中时，直接说：
+- "使用当前终端分析这篇论文"
+- "用Claude Code终端直接分析"
+- "Analyze this paper using the current terminal session"
+
+The skill will use Claude Code's built-in LLM capabilities to analyze the paper directly without needing any additional API configuration.
+
+该技能将直接使用Claude Code内置的LLM能力分析论文，无需额外API配置。
+
+### Using the Python Script / 使用Python脚本
+
+```bash
+# Navigate to the skill directory
+cd /path/to/paper-content-audit
+
+# Run with PDF file
+python3 scripts/paper_audit_script.py /path/to/paper.pdf
+
+# Run with text content
+python3 scripts/paper_audit_script.py --text "论文全文内容..."
+
+# Run with API key for LLM enhancement
+export ANTHROPIC_API_KEY="your-api-key"
+python3 scripts/paper_audit_script.py paper.pdf
+```
+
+## Usage Scenarios / 使用场景
+
+| Chinese | English |
+|---------|---------|
+| 审核论文 | Audit paper |
+| 论文评审 | Paper review |
+| 分析论文创新点 | Analyze paper innovations |
+| 检查论文贡献 | Check paper contributions |
+| 论文质量评估 | Paper quality assessment |
+| 对比baseline | Compare with baselines |
+| 验证实验完整性 | Verify experiment completeness |
+
+## Output / 输出
+
+The skill generates **4 report formats**:
+
+技能生成**4种报告格式**：
+
+1. **Markdown报告** - `paper_audit_report_YYYY-MM-DD_HHMMSS.md`
+2. **HTML基础报告** - `paper_audit_report_YYYYMMDD_HHMMSS.html`
+3. **HTML补充报告** - `paper_audit_supplementary_report_YYYY-MM-DD_HHMMSS.html`
+4. **中英双语报告** - `论文内容审核报告_中英双语_YYYY-MM-DD_HHMMSS.md`
+
+## Report Contents / 报告内容
+
+| Section | Description | 说明 |
+|---------|-------------|------|
+| 基本信息 | Title, authors, degree, institution | 标题、作者、学位、学校 |
+| 主要贡献 | Contribution points with evaluation | 贡献点及评估 |
+| 方法创新性 | Innovation points with method support | 创新点及方法支撑 |
+| Baseline对比 | Comparison with existing methods | 与现有方法对比 |
+| 实验完整性 | Experiment coverage analysis | 实验覆盖分析 |
+| 增量改进 | Novel vs incremental assessment | 创新与增量评估 |
+| 综合评分 | Overall scores by dimension | 各维度综合评分 |
+| 总结 | Strengths and weaknesses | 优点与不足 |
+
+## Dependencies / 依赖
 
 ```bash
 pip install pypdf pdfplumber PyMuPDF
 ```
 
-| Library | Description |
-|---------|-------------|
-| `pdfplumber` | Recommended, better Chinese support |
-| `PyMuPDF` (fitz) | Alternative, better for tables and graphics |
-| `pypdf` | Fallback option |
-
-## Workflow
-
-1. **Extract Paper Content** - Use pypdf to read PDF or parse text
-2. **Analyze Contribution Claims** - Extract contributions from abstract, introduction, conclusion
-3. **Verify Innovation Mapping** - Check if each contribution has method support
-4. **Check Experimental Evaluation** - Verify baseline comparison, experiment completeness
-5. **Generate Report** - Output structured audit report
-
-## Output Report
-
-Generates a **bilingual (Chinese/English) HTML format** structured report.
-
-**Report Contents:**
-1. **Basic Information** - Title, authors, degree, institution, type
-2. **Main Contributions Evaluation** - Contribution points, method support, evaluation table
-3. **Method Innovation Evaluation** - Innovation points, sections, detailed content table
-4. **Method vs Baseline Detailed Comparison** - Specific improvements and performance metrics for each method
-5. **Baseline Comparison Evaluation** - Compared methods list, descriptions, paper locations
-6. **Experiment Completeness Evaluation** - Experiment types, sections, descriptions
-7. **Incremental Improvement Identification** - Incremental vs novel assessment for each contribution
-8. **Overall Scores** - Scoring results for each audit dimension
-9. **Summary** - Strengths list + Main weaknesses list
-
-**Report Format:** HTML (openable in browser)
-- Bilingual titles
-- Tabular display of audit results
-- Color coding: Green (✅ Pass), Red (❌ Issue), Yellow (⚠️ Warning)
-- info-box/warning-box/error-box for different information types
-- comparison-card for method vs Baseline detailed comparisons
-- Responsive layout, mobile-friendly
-
-## Report Data Structure
-
-Use `full_audit_data` parameter to pass complete audit information:
-
-```python
-full_audit_data = {
-    'paper_title': 'Paper Title',
-    'basic_info': {
-        'Title': '...',
-        'Authors': '...',
-        'Degree': '...',
-        'Institution': '...',
-        'Type': '...',
-        'Audit Date': 'YYYY-MM-DD'
-    },
-    'contributions': [
-        {'point': 'Contribution', 'method': 'Method Support', 'evaluation': '✅/❌'}
-    ],
-    'method_innovations': [
-        {'innovation': 'Innovation', 'section': 'Section', 'details': 'Details', 'status': '✅/❌'}
-    ],
-    'method_vs_baseline': [
-        {
-            'method_name': 'Method Name',
-            'baseline': 'Baseline',
-            'improvements': ['Improvement 1', 'Improvement 2'],
-            'metrics': ['Metric 1', 'Metric 2']
-        }
-    ],
-    'baselines': [
-        {'name': 'Baseline Name', 'description': 'Description', 'section': 'Location'}
-    ],
-    'experiments': [
-        {'type': 'Experiment Type', 'section': 'Section', 'description': 'Description'}
-    ],
-    'incremental_improvements': [
-        {'contribution': 'Contribution', 'assessment': 'Assessment'}
-    ],
-    'overall_scores': [
-        {'dimension': 'Dimension', 'result': '✅/⚠️/❌'}
-    ],
-    'summary': {
-        'strengths': ['Strength 1', 'Strength 2'],
-        'weaknesses': ['Weakness 1', 'Weakness 2']
-    }
-}
+Optional for LLM extraction:
+```bash
+pip install anthropic
+export ANTHROPIC_API_KEY="your-key"
 ```
 
-## Project Structure
+## Project Structure / 项目结构
 
 ```
-scripts/
-├── paper_audit_script.py   # Main entry point
-├── extractors/
-│   └── content.py          # Content extraction
-├── checks/
-│   ├── contributions.py    # Contribution extraction and analysis
-│   ├── innovation.py        # Innovation verification
-│   ├── baseline_comparison.py # Baseline comparison check
-│   └── experiments.py       # Experiment completeness check
-└── reports/
-    └── generator.py         # Report generation (supports full_audit_data)
+paper-content-audit/
+├── SKILL.md                 # Skill definition
+├── README.md                # This file
+├── scripts/
+│   ├── paper_audit_script.py    # Main entry
+│   ├── extractors/
+│   │   ├── content.py           # PDF extraction
+│   │   └── llm_extractor.py     # LLM extraction
+│   └── reports/
+│       └── generator.py         # Report generation
 ```
 
-## Audit Standards Reference
+## Examples / 示例
 
-### Main Contributions Evaluation Criteria
+### Example 1: Audit a PDF file
 
-**Good Contribution Statements:**
-- Clearly state the problem being solved
-- Point out advantages over existing methods
-- Contributions are specific and verifiable
-
-**Poor Contribution Statements:**
-- Only describe the task without solution
-- Lack comparison with existing work
-- Contributions too broad or unverifiable
-
-### Method Innovation Evaluation Criteria
-
-Each innovation must satisfy:
-1. **Method Level** - Detailed algorithm/model description in method section
-2. **Clear Improvement** - Clearly state specific improvements over baseline
-3. **Theoretical Support** - Have theoretical analysis or motivation explanation
-
-### Method vs Baseline Comparison Criteria
-
-**Must Include:**
-- Specific improvements of the method over each baseline
-- Performance improvement metrics (numerical comparison)
-- Improvement percentage or absolute values
-
-**Should Include:**
-- Visual comparison cards (comparison-card)
-- Ablation study results
-
-### Baseline Comparison Evaluation Criteria
-
-**Must Include:**
-- Comparison with at least one mainstream baseline method
-- Performance comparison on standard datasets
-- Statistical significance explanation (if applicable)
-
-**Should Include:**
-- Ablation Study
-- Fair comparison with similar methods
-- Complexity/efficiency comparison
-
-## Adding New Audit Items
-
-To add new audit items, create an independent module under `scripts/checks/`:
-
-```python
-# scripts/checks/my_check.py
-from typing import List, Dict
-
-def check_my_item(content: Dict, ...) -> Dict:
-    """
-    Audit item description
-
-    Returns:
-        Dict with keys: result, issues, warnings
-    """
-    issues = []
-    warnings = []
-    result = {}
-
-    # Audit logic...
-
-    return {
-        'result': result,
-        'issues': issues,
-        'warnings': warnings
-    }
+```bash
+python3 scripts/paper_audit_script.py /path/to/paper.pdf
 ```
 
-Then export in `scripts/checks/__init__.py` and call in `paper_audit_script.py`'s `run_full_audit()`.
+### Example 2: Audit with text content
 
-## Notes
+```bash
+python3 scripts/paper_audit_script.py --text "论文摘要和内容..."
+```
 
-1. **Text Extraction Limitations**: PDF text extraction may not capture exact formatting
-2. **Subjective Evaluation**: Innovation and contribution assessment has some subjectivity
-3. **Domain Differences**: Definition of innovation and baseline may vary across fields
-4. **Report Generation**: Using `full_audit_data` parameter is recommended for best results
+### Example 3: Specify output directory
+
+```bash
+python3 scripts/paper_audit_script.py paper.pdf ./output
+```
+
+## Notes / 注意事项
+
+1. **Chinese Support**: Optimized for Chinese academic papers
+2. **LLM Analysis**: Claude Code terminal can analyze directly without API key
+3. **Fallback**: Enhanced heuristic extraction when LLM unavailable
+4. **Report Language**: Reports can be generated in Chinese, English, or bilingual
+
+---
+
+## 许可证 / License
+
+MIT License
+
+## 作者 / Author
+
+Claude Code Skill
+
+## 更新日志 / Changelog
+
+### v2.0 (2026-04-15)
+- 添加Claude Code终端直接LLM分析功能
+- 添加中英双语报告生成
+- 增强备用启发式提取算法
+- 更新SKILL.md描述
+
+### v1.0 (2026-04-14)
+- 初始版本
+- 支持PDF文本提取
+- 支持HTML/Markdown报告生成
