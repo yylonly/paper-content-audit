@@ -3,9 +3,13 @@ import re
 from typing import List, Dict
 
 
-def check_contributions(content_by_page: List[Dict], full_text: str = "") -> Dict:
+def check_contributions(content_by_page: List[Dict], sections: Dict = None) -> Dict:
     """
     检查论文的主要贡献（中英文支持）
+
+    Args:
+        content_by_page: 页面内容列表
+        sections: 章节内容字典，包含 abstract, introduction, conclusion, method, experiment, full_text
 
     Returns:
         Dict with keys: contributions, issues, warnings
@@ -13,6 +17,19 @@ def check_contributions(content_by_page: List[Dict], full_text: str = "") -> Dic
     contributions = []
     issues = []
     warnings = []
+
+    # 获取各部分文本
+    if sections and isinstance(sections, dict):
+        abstract_text = sections.get('abstract', '')
+        intro_text = sections.get('introduction', '')
+        conclusion_text = sections.get('conclusion', '')
+        method_text = sections.get('method', '')
+        full_text = sections.get('full_text', '')
+        if not full_text:
+            full_text = "\n\n".join(p['text'] for p in content_by_page) if content_by_page else ""
+    else:
+        full_text = sections if isinstance(sections, str) else "\n\n".join(p['text'] for p in content_by_page) if content_by_page else ""
+        abstract_text = intro_text = conclusion_text = method_text = ""
 
     # 提取贡献声明的关键词 - 中英文
     contribution_keywords_en = [
@@ -33,54 +50,75 @@ def check_contributions(content_by_page: List[Dict], full_text: str = "") -> Dic
         "本文的贡献", "本文的主要工作"
     ]
 
-    # 从全文中提取贡献语句
-    text = full_text if full_text else "\n\n".join(p['text'] for p in content_by_page)
-
-    # 提取引言和结论中的贡献声明
-    intro_pattern = r'1?\s*Introduction.*?(?=\s*2\s+[A-Z]|\s*Background|\s*Preliminaries|\s*Related\s+Work)'
-    conclusion_pattern = r'(Conclusion|Conclusions|5?\s*Conclusion|总结|结论).*'
-
-    intro_match = re.search(intro_pattern, text, re.DOTALL | re.IGNORECASE)
-    conclusion_match = re.search(conclusion_pattern, text, re.DOTALL | re.IGNORECASE)
-
-    intro_text = intro_match.group(0) if intro_match else ""
-    conclusion_text = conclusion_match.group(0) if conclusion_match else ""
-
-    # 在摘要中查找贡献
-    abstract_pattern = r'Abstract[:：]?\s*(.+?)(?=\n\s*(Keywords|Introduction|1\.)|$)'
-    abstract_match = re.search(abstract_pattern, text, re.DOTALL | re.IGNORECASE)
-    abstract_text = abstract_match.group(1) if abstract_match else ""
+    # 重点从摘要、引言、结论中提取
+    key_sections = abstract_text + "\n" + intro_text + "\n" + conclusion_text
 
     # 查找所有贡献语句
     contribution_sentences = []
 
-    # 英文关键词
+    # 英文关键词 - 在关键章节中查找
     for keyword in contribution_keywords_en:
         pattern = rf'[^.!?]*\b{keyword}\b[^.!?]*[.!?]'
-        matches = re.findall(pattern, text, re.IGNORECASE)
+        matches = re.findall(pattern, key_sections, re.IGNORECASE)
         contribution_sentences.extend(matches)
 
-    # 中文关键词 - 使用更宽松的匹配
+    # 中文关键词 - 在关键章节中查找
     for keyword in contribution_keywords_cn:
-        # 匹配包含关键词的行或句子
         pattern = rf'[^。！？]*[{re.escape(keyword)}][^。！？]*[。！？]?'
-        matches = re.findall(pattern, text)
+        matches = re.findall(pattern, key_sections)
         contribution_sentences.extend(matches)
 
-    # 尝试从摘要中提取贡献点列表
-    # 常见模式：(1) ... (2) ... (3) ... 或 1. ... 2. ... 3. ...
+    # 尝试从摘要中提取贡献点列表 (1) ... (2) ... (3) ...
     list_patterns = [
         r'[（(]\d+[）)]\s*(.+?)[。；;]',
         r'\d+[.、]\s*(.+?)[。；;]',
-        r'(?:第一|第二|第三|首先|其次|最后)[^。]*[。]',
     ]
     for pattern in list_patterns:
-        matches = re.findall(pattern, text)
+        matches = re.findall(pattern, abstract_text)
+        contribution_sentences.extend(matches)
+
+    # English contribution patterns: First, ... Second, ... Third, ... Finally, ...
+    english_contribution_patterns = [
+        r'(?:First|Secondly|Second)[,\s]+([^.!?]+[!.?])',
+        r'(?:Third)[,\s]+([^.!?]+[!.?])',
+        r'(?:Finally|Lastly|Last)[,\s]+([^.!?]+[!.?])',
+        r'(?:First|Secondly|Second|Third|Finally)[,\s]+([^.!?]+?(?=\n\s*(?:Second|Third|Finally|$)))',
+    ]
+    for pattern in english_contribution_patterns:
+        matches = re.findall(pattern, abstract_text, re.IGNORECASE)
+        contribution_sentences.extend(matches)
+
+    # Also look for structured contribution patterns in intro/conclusion
+    structured_patterns = [
+        r'本文[提出|贡献|主要]*(.+?)[。]',
+        r'我们[提出|方法|贡献]*(.+?)[。]',
+        r'创新点[：:]\s*(.+?)[。]',
+        r'主要[贡献|创新]?[：:]\s*(.+?)[。]',
+    ]
+    for pattern in structured_patterns:
+        matches = re.findall(pattern, key_sections)
         contribution_sentences.extend(matches)
 
     # 去重并清理
     unique_contributions = list(set(contribution_sentences))
-    contributions = [c.strip() for c in unique_contributions if len(c.strip()) > 15][:10]
+
+    # 过滤掉太短或者太长的，以及包含噪音关键词的
+    noise_keywords = ['中图分类号', '论文编号', 'copyright', '©', 'permission', 'reserved', '表5', '表4', '表3', '北京航空航天大学']
+    contributions = []
+    for c in unique_contributions:
+        c_clean = c.strip()
+        # 跳过包含噪音关键词的
+        if any(kw in c_clean.lower() for kw in noise_keywords):
+            continue
+        # 跳过太短或太长的
+        if len(c_clean) < 20 or len(c_clean) > 300:
+            continue
+        # 跳过包含表格数据的（数字过多）
+        if len(re.findall(r'\d+\.\d+|\d+/\d+', c_clean)) > 5:
+            continue
+        contributions.append(c_clean)
+
+    contributions = contributions[:10]
 
     # 评估贡献质量
     if not contributions:

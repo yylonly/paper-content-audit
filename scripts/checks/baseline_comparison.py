@@ -3,9 +3,13 @@ import re
 from typing import List, Dict
 
 
-def check_baseline_comparison(content_by_page: List[Dict], full_text: str = "") -> Dict:
+def check_baseline_comparison(content_by_page: List[Dict], sections: Dict = None) -> Dict:
     """
     检查实验评估是否包含baseline方法对比
+
+    Args:
+        content_by_page: 页面内容列表
+        sections: 章节内容字典，包含 abstract, introduction, conclusion, method, experiment, full_text
 
     Returns:
         Dict with keys: baselines_mentioned, comparison_quality, issues, warnings
@@ -15,7 +19,15 @@ def check_baseline_comparison(content_by_page: List[Dict], full_text: str = "") 
     issues = []
     warnings = []
 
-    text = full_text if full_text else "\n\n".join(p['text'] for p in content_by_page)
+    # 获取各部分文本
+    if sections and isinstance(sections, dict):
+        experiment_section = sections.get('experiment', '')
+        full_text = sections.get('full_text', '')
+        if not full_text:
+            full_text = "\n\n".join(p['text'] for p in content_by_page) if content_by_page else ""
+    else:
+        full_text = sections if isinstance(sections, str) else "\n\n".join(p['text'] for p in content_by_page) if content_by_page else ""
+        experiment_section = ""
 
     # 常见的baseline方法关键词
     baseline_keywords = [
@@ -29,39 +41,72 @@ def check_baseline_comparison(content_by_page: List[Dict], full_text: str = "") 
 
     # 常见的baseline方法名模式
     baseline_patterns = [
+        # ML/CV models
         r'(BERT|RoBERTa|ALBERT|DistilBERT)\b',
         r'(ResNet|VGG|Inception|DenseNet)\b',
         r'(LSTM|GRU|RNN|CNN)\b',
         r'(Transformer|GPT|BART|T5)\b',
         r'(Adam|SGD|RMSprop)\b',
+        # UML/Auto Layout tools
+        r'\b(ELK|Graphviz|Visual\s+Paradigm|StarUML|PlantUML|UMLet|Umbrello)\b',
+        # Generic method names in this paper
+        r'\b(Rule|LLM|Hybrid|Default|Baseline|Traditional|Classical)\b',
         r'baseline\s*:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
         r'compared\s+to\s+:?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)',
+        # Chinese baseline references
+        r'对比\s*([A-Za-z]+)',
+        r'基准\s*([A-Za-z]+)',
     ]
 
-    # 提取实验章节
-    experiment_patterns = [
-        r'(Experiment|Experiments|Experimental Results|Results|Evaluation)[\s:：\n](.+?)(?=\s*(Conclusion|Related\s+Work|Discussion|Limitations|\d+\.\s+[A-Z]))',
-        r'(4|IV)\s+(Experiment|Experiments|Results|Evaluation).*?(?=\s*(Conclusion|Related|\d+\.))',
-    ]
+    # 提取实验章节 - 如果sections中没有，尝试从全文中提取
+    if not experiment_section:
+        experiment_patterns = [
+            r'(?:5\s+Experiment|Experimental Results|Results|Evaluation)[\s:：\n](.+?)(?=\n\s*(?:6\s+|Conclusion| Related|$))',
+            r'(?:第\s*5\s*章)[\s:：\n](.+?)(?=\n\s*(?:第\s*6\s*章|6\s+|$))',
+        ]
+        for pattern in experiment_patterns:
+            match = re.search(pattern, full_text, re.DOTALL | re.IGNORECASE)
+            if match:
+                experiment_section = match.group(0)
+                break
 
-    experiment_section = ""
-    for pattern in experiment_patterns:
-        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-        if match:
-            experiment_section = match.group(0)
-            break
+    # 查找baseline提及 - 在实验章节中查找
+    search_text = experiment_section if experiment_section else full_text
 
-    # 查找baseline提及
     for keyword in baseline_keywords:
         pattern = rf'[^.!?]*\b{keyword}\b[^.!?]*[.!?]'
-        matches = re.findall(pattern, text, re.IGNORECASE)
+        matches = re.findall(pattern, search_text, re.IGNORECASE)
         baselines_mentioned.extend([m.strip() for m in matches if len(m.strip()) > 20])
 
-    # 查找具体baseline方法名
+    # 查找具体baseline方法名 - 在全文中查找
     specific_baselines = []
     for pattern in baseline_patterns:
-        matches = re.findall(pattern, text)
+        matches = re.findall(pattern, full_text)
         specific_baselines.extend(matches)
+
+    # Also look for Chinese baseline references
+    chinese_baseline_patterns = [
+        r'基准方法[：:\s]*([^\s，,]+)',
+        r'baseline[：:\s]*([^\s，,]+)',
+        r'对比方法[：:\s]*([^\s，,]+)',
+        r'传统方法[：:\s]*([^\s，,]+)',
+        r'已有方法[：:\s]*([^\s，,]+)',
+    ]
+    for pattern in chinese_baseline_patterns:
+        matches = re.findall(pattern, full_text, re.IGNORECASE)
+        specific_baselines.extend([m.strip() for m in matches if len(m.strip()) > 1])
+
+    # Also extract method names from experiment section that appear in comparison context
+    if experiment_section:
+        # Find method names followed by numbers (likely performance metrics)
+        method_metric_pattern = r'([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)\s*[=:]\s*\d+[\.\d]*'
+        found_methods = re.findall(method_metric_pattern, experiment_section)
+        specific_baselines.extend([m for m in found_methods if len(m) > 2])
+
+        # Also look for table-like data (method names at start of lines)
+        table_method_pattern = r'^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+\d'
+        found_table_methods = re.findall(table_method_pattern, experiment_section, re.MULTILINE)
+        specific_baselines.extend(found_table_methods)
 
     unique_baselines = list(set(specific_baselines))
 
@@ -78,7 +123,7 @@ def check_baseline_comparison(content_by_page: List[Dict], full_text: str = "") 
         # 检查是否有统计显著性说明
         stat_keywords = [
             'p-value', 'significantly', 'statistical', 'confidence',
-            't-test', 'paired', 'wilcoxon', 'mann-whitney'
+            't-test', 'paired', 'wilcoxon', 'mann-whitney', 'p值', '显著性'
         ]
         if any(kw in experiment_section.lower() for kw in stat_keywords):
             has_statistical_significance = True
