@@ -1,0 +1,19 @@
+{
+  "skill_name": "paper-content-audit",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "帮我审核一下这篇论文的主要贡献和创新点，以及实验是否和baseline做了充分对比。",
+      "expected_output": "应该生成完整的论文内容审核报告，包含贡献声明列表、创新性分析、baseline对比、实验完整性评估",
+      "files": [],
+      "assertions": [
+        "Output contains main contributions section (主要贡献)",
+        "Output contains method innovation analysis (方法创新性)",
+        "Output contains baseline comparison section (Baseline对比)",
+        "Output contains experimental completeness section (实验完整性)",
+        "Output identifies issues or warnings",
+        "Report is structured as markdown with tables"
+      ]
+    }
+  ]
+}
