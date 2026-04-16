@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from extractors.content import ContentExtractor
 from extractors.llm_extractor import extract_with_llm
-from reports.generator import generate_html_report, generate_supplementary_report, generate_markdown_report_from_data, generate_bilingual_markdown_report
+from reports.generator import generate_html_report
 
 
 def run_full_audit(pdf_path: str = None, text: str = None, output_dir: str = ".") -> dict:
@@ -83,21 +83,6 @@ def run_full_audit(pdf_path: str = None, text: str = None, output_dir: str = "."
         output_dir=output_dir
     )
 
-    supp_report_path = generate_supplementary_report(
-        full_audit_data=full_audit_data,
-        output_dir=output_dir
-    )
-
-    md_report_path = generate_markdown_report_from_data(
-        full_audit_data=full_audit_data,
-        output_dir=output_dir
-    )
-
-    bilingual_md_path = generate_bilingual_markdown_report(
-        full_audit_data=full_audit_data,
-        output_dir=output_dir
-    )
-
     # 5. 打印摘要
     print("\n" + "=" * 60)
     print("审核摘要 / Audit Summary")
@@ -120,9 +105,6 @@ def run_full_audit(pdf_path: str = None, text: str = None, output_dir: str = "."
 
     return {
         'report_path': report_path,
-        'supp_report_path': supp_report_path,
-        'md_report_path': md_report_path,
-        'bilingual_md_report_path': bilingual_md_path,
         'llm_data': llm_data
     }
 
@@ -267,19 +249,115 @@ def build_audit_data(llm_data: Dict, content_by_page: list, full_text: str,
         'weaknesses': weaknesses_list
     }
 
+    # 构建方法vs Baseline详细对比
+    method_vs_baseline_data = build_method_vs_baseline(
+        baselines_data, contributions_data, evaluation_data, full_text
+    )
+
     return {
         'paper_title': paper_title if paper_title else '论文内容审核报告',
         'basic_info': basic_info,
         'contributions': contributions_data,
         'method_innovations': innovations_data,
-        'method_vs_baseline': [],  # LLM提取的结构化数据
+        'method_vs_baseline': method_vs_baseline_data,
         'baselines': baselines_data,
         'experiments': experiments_data,
         'incremental_improvements': incremental_improvements_data,
         'overall_scores': scores_data,
         'summary': summary_data,
-        'llm_evaluation': evaluation_data if has_llm_data else {}  # 保留原始LLM评估数据
+        'llm_evaluation': evaluation_data if has_llm_data else {}
     }
+
+
+def build_method_vs_baseline(baselines_data: list, contributions_data: list,
+                            evaluation_data: dict, full_text: str) -> list:
+    """构建方法与Baseline的详细对比数据"""
+
+    method_vs_baseline = []
+
+    # 如果没有baseline数据，返回空
+    if not baselines_data:
+        return method_vs_baseline
+
+    # 从evaluation_data获取指标信息
+    metrics = evaluation_data.get('metrics', []) if evaluation_data else []
+    datasets = evaluation_data.get('datasets', []) if evaluation_data else []
+
+    # 从全文中提取性能指标对比
+    metric_patterns = [
+        r'([A-Za-z\-]+)\s*[=:]\s*(\d+\.?\d*)\s*%?\s*(?:vs|versus|对比)?\s*([A-Za-z\-]+)?',
+        r'([A-Za-z\-]+)\s*\(?(\d+\.?\d*)\)?\s*(?:vs|vs\.|versus|对比)\s*([A-Za-z\-]+)?',
+    ]
+
+    # 尝试从实验章节提取表格数据（方法名 + 指标数值）
+    if full_text:
+        # 提取所有可能的性能指标数值
+        perf_indicators = []
+
+        # 常见指标名称
+        indicator_names = [
+            'ISR', 'VFS', 'CodeBLEU', 'BLEU', 'ROUGE', 'METEOR', 'CIDEr',
+            'Accuracy', 'Precision', 'Recall', 'F1', 'AUC', 'AP', 'mAP',
+            'BLEU-1', 'BLEU-2', 'BLEU-3', 'BLEU-4',
+            ' chrF', 'WER', 'CER', 'PER'
+        ]
+
+        for indicator in indicator_names:
+            # 匹配 "指标名 数值" 或 "指标名: 数值"
+            pattern = rf'{indicator}\s*[:=]?\s*(\d+\.?\d+)'
+            matches = re.findall(pattern, full_text, re.IGNORECASE)
+            for match in matches:
+                perf_indicators.append({
+                    'metric': indicator.upper(),
+                    'value': match if isinstance(match, str) else match[0] if match else ''
+                })
+
+    # 为每个baseline构建对比条目
+    for i, baseline in enumerate(baselines_data[:5]):  # 最多5个baseline
+        baseline_name = baseline.get('name', f'Baseline {i+1}')
+
+        # 构建改进点列表（从贡献点提取）
+        improvements = []
+        for contrib in contributions_data[:3]:  # 最多3个贡献点
+            point = contrib.get('point', '')
+            if point and len(point) > 10:
+                improvements.append(point[:100])
+
+        # 构建性能指标对比
+        metrics_list = []
+        if metrics:
+            for metric in metrics[:5]:  # 最多5个指标
+                if isinstance(metric, str):
+                    metrics_list.append({
+                        'metric': metric,
+                        'baseline_value': 'N/A',
+                        'proposed_value': 'N/A',
+                        'improvement': 'N/A'
+                    })
+                elif isinstance(metric, dict):
+                    metrics_list.append({
+                        'metric': metric.get('name', metric.get('metric', 'Unknown')),
+                        'baseline_value': metric.get('baseline', 'N/A'),
+                        'proposed_value': metric.get('proposed', metric.get('value', 'N/A')),
+                        'improvement': metric.get('improvement', 'N/A')
+                    })
+        else:
+            # 如果没有明确的指标，从baseline名称推断
+            metrics_list.append({
+                'metric': '性能指标',
+                'baseline_value': '见论文',
+                'proposed_value': '见论文',
+                'improvement': '需手动对比'
+            })
+
+        method_vs_baseline.append({
+            'method_name': '本文方法',
+            'baseline': baseline_name,
+            'improvements': improvements if improvements else ['具体改进点见论文实验章节'],
+            'metrics': metrics_list
+        })
+
+    return method_vs_baseline
 
 
 def extract_author(content_by_page: list) -> str:
@@ -677,33 +755,338 @@ def extract_title(content_by_page: list) -> str:
     return "论文标题提取失败"
 
 
+def run_step1(pdf_path: str, output_dir: str = "."):
+    """Task 1: 仅提取PDF文本内容"""
+    print("\n" + "=" * 60)
+    print("Task 1: PDF文本提取")
+    print("=" * 60)
+
+    extractor = ContentExtractor(pdf_path=pdf_path)
+    content_by_page = extractor.extract_all()
+
+    if not content_by_page:
+        print("错误: 无法提取论文内容")
+        return None
+
+    full_text = extractor.full_text
+    paper_title = extract_title(content_by_page)
+
+    print(f"\n✅ PDF文本提取成功")
+    print(f"   论文标题: {paper_title if paper_title else '未提取到标题'}")
+    print(f"   总页数: {extractor.total_pages if extractor.total_pages else 1}")
+    print(f"   提取方法: {extractor.extraction_method}")
+    print(f"   文本长度: {len(full_text)} 字符")
+
+    # 保存文本到文件
+    output_file = os.path.join(output_dir, "paper_text_extracted.txt")
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(f"论文标题: {paper_title}\n")
+        f.write("=" * 60 + "\n")
+        f.write(full_text)
+
+    print(f"\n📄 文本已保存到: {output_file}")
+    print("\n下一步: 使用当前终端LLM分析论文内容")
+    print("   提示: 可以直接复制以上文本内容进行分析")
+
+    return {
+        'paper_title': paper_title,
+        'full_text': full_text,
+        'content_by_page': content_by_page,
+        'output_file': output_file
+    }
+
+
+def run_step3(llm_data: dict, output_dir: str = "."):
+    """Task 3: 仅生成报告"""
+    print("\n" + "=" * 60)
+    print("Task 3: 生成报告")
+    print("=" * 60)
+
+    if not llm_data:
+        print("错误: LLM数据为空")
+        return None
+
+    # 构建审核数据
+    full_audit_data = build_audit_data_from_llm(llm_data)
+
+    # 生成报告
+    print("\n生成报告...")
+
+    report_path = generate_html_report(
+        full_audit_data=full_audit_data,
+        output_dir=output_dir
+    )
+
+    print("\n" + "=" * 60)
+    print("✅ 报告生成完成")
+    print("=" * 60)
+
+    if report_path:
+        print(f"🌐 HTML报告: {report_path}")
+
+    return {
+        'report_path': report_path
+    }
+
+
+def build_audit_data_from_llm(llm_data: dict) -> dict:
+    """从LLM数据构建审核数据"""
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+
+    # 基本信息
+    basic_info = llm_data.get('basic_info', {})
+    basic_info['审核时间'] = timestamp
+
+    # 贡献点
+    contributions = llm_data.get('contributions', [])
+    contributions_data = []
+    for c in contributions:
+        if isinstance(c, dict):
+            contributions_data.append({
+                'point': c.get('point', ''),
+                'method': c.get('method', ''),
+                'evaluation': c.get('evaluation', '✅')
+            })
+        else:
+            contributions_data.append({
+                'point': str(c),
+                'method': '',
+                'evaluation': '✅'
+            })
+
+    # 创新点
+    innovations = llm_data.get('method_innovations', [])
+    innovations_data = []
+    for m in innovations:
+        if isinstance(m, dict):
+            innovations_data.append({
+                'innovation': m.get('innovation', ''),
+                'section': m.get('section', ''),
+                'details': m.get('details', ''),
+                'status': m.get('status', '✅')
+            })
+        else:
+            innovations_data.append({
+                'innovation': str(m),
+                'section': '',
+                'details': '',
+                'status': '✅'
+            })
+
+    # Baseline
+    baselines = llm_data.get('baselines', [])
+    baselines_data = []
+    for b in baselines:
+        if isinstance(b, dict):
+            baselines_data.append({
+                'name': b.get('name', ''),
+                'description': b.get('description', ''),
+                'section': b.get('section', '')
+            })
+        else:
+            baselines_data.append({
+                'name': str(b),
+                'description': '',
+                'section': ''
+            })
+
+    # 实验
+    experiments = llm_data.get('experiments', [])
+    experiments_data = []
+    for e in experiments:
+        if isinstance(e, dict):
+            experiments_data.append({
+                'type': e.get('type', ''),
+                'section': e.get('section', ''),
+                'description': e.get('description', '')
+            })
+        else:
+            experiments_data.append({
+                'type': str(e),
+                'section': '',
+                'description': ''
+            })
+
+    # 增量改进
+    incremental = llm_data.get('incremental_improvements', [])
+    incremental_data = []
+    for i in incremental:
+        if isinstance(i, dict):
+            incremental_data.append({
+                'contribution': i.get('contribution', ''),
+                'assessment': i.get('assessment', '')
+            })
+        else:
+            incremental_data.append({
+                'contribution': str(i),
+                'assessment': ''
+            })
+
+    # 综合评分
+    scores = llm_data.get('overall_scores', [])
+    scores_data = []
+    for s in scores:
+        if isinstance(s, dict):
+            scores_data.append({
+                'dimension': s.get('dimension', ''),
+                'result': s.get('result', '')
+            })
+        else:
+            scores_data.append({
+                'dimension': str(s),
+                'result': '✅'
+            })
+
+    # 总结
+    summary = llm_data.get('summary', {})
+    strengths = summary.get('strengths', [])
+    weaknesses = summary.get('weaknesses', [])
+
+    # 方法vs Baseline详细对比
+    method_vs_baseline = []
+    for b in baselines_data:
+        baseline_name = b.get('name', 'Baseline')
+        baseline_desc = b.get('description', '')
+        baseline_metrics = b.get('metrics', {}) if isinstance(b, dict) else {}
+
+        # 构建改进点和指标
+        improvements = [c.get('point', '')[:100] for c in contributions_data[:3] if c.get('point')]
+        metrics_list = []
+
+        if baseline_metrics:
+            for metric_name, metric_value in baseline_metrics.items():
+                metrics_list.append({
+                    'metric': metric_name,
+                    'baseline_value': str(metric_value),
+                    'proposed_value': '见论文',
+                    'improvement': 'N/A'
+                })
+        else:
+            # 从LLM数据中提取指标
+            llm_baselines = llm_data.get('baselines', [])
+            for llm_b in llm_baselines:
+                if isinstance(llm_b, dict) and llm_b.get('name') == baseline_name:
+                    m = llm_b.get('metrics', {})
+                    if isinstance(m, dict):
+                        for mk, mv in m.items():
+                            metrics_list.append({
+                                'metric': mk,
+                                'baseline_value': str(mv),
+                                'proposed_value': '见论文',
+                                'improvement': 'N/A'
+                            })
+                    break
+
+        method_vs_baseline.append({
+            'method_name': '本文方法',
+            'baseline': baseline_name,
+            'improvements': improvements if improvements else ['具体改进见论文'],
+            'metrics': metrics_list if metrics_list else [{'metric': '性能指标', 'baseline_value': 'N/A', 'proposed_value': 'N/A', 'improvement': 'N/A'}]
+        })
+
+    # 追溯关系数据（新格式）
+    main_problems = llm_data.get('一_主要问题分析', [])
+    method_innovations_new = llm_data.get('二_方法创新性', [])
+    evaluation = llm_data.get('三_评估验证', {})
+    baseline_traceability = llm_data.get('baseline_traceability', [])
+    trace_check = llm_data.get('summary', {}).get('traceability_check', {})
+
+    return {
+        'paper_title': llm_data.get('paper_title', '论文内容审核报告'),
+        'basic_info': basic_info,
+        '一_主要问题分析': main_problems,
+        '二_方法创新性': method_innovations_new,
+        '三_评估验证': evaluation,
+        'contributions': contributions_data,
+        'method_innovations': innovations_data,
+        'method_vs_baseline': method_vs_baseline,
+        'baselines': baselines_data,
+        'baseline_traceability': baseline_traceability,
+        'experiments': experiments_data,
+        'incremental_improvements': incremental_data,
+        'overall_scores': scores_data,
+        'summary': {
+            'strengths': strengths if isinstance(strengths, list) else [],
+            'weaknesses': weaknesses if isinstance(weaknesses, list) else [],
+            'traceability_check': trace_check
+        }
+    }
+
+
 def main():
     """主函数"""
     if len(sys.argv) < 2:
         print("使用方法:")
+        print("  # 串行Task模式（推荐）:")
+        print("  python3 paper_audit_script.py --step1 <pdf_path> [output_dir]")
+        print("  python3 paper_audit_script.py --step3 --llm-data '<json>' [output_dir]")
+        print()
+        print("  # 一键执行模式:")
         print("  python3 paper_audit_script.py <pdf_path> [output_dir]")
-        print("  python3 paper_audit_script.py --text '<论文文本>' [output_dir]")
-        print("\n环境变量:")
-        print("  ANTHROPIC_API_KEY - Anthropic API密钥（启用LLM提取）")
-        print("\n参数说明:")
-        print("  pdf_path     - 论文PDF文件路径")
-        print("  --text / -t  - 直接传入论文文本内容")
-        print("  output_dir   - 可选，报告输出目录（默认当前目录）")
-        print("\n示例:")
-        print("  python3 paper_audit_script.py paper.pdf")
-        print("  python3 paper_audit_script.py paper.pdf ./output")
-        print("  python3 paper_audit_script.py --text '论文全文...'")
-        print("\n注意: 设置ANTHROPIC_API_KEY环境变量可启用LLM智能提取功能")
+        print()
+        print("  # 直接传入文本:")
+        print("  python3 paper_audit_script.py --text '<论文文本>'")
+        print()
+        print("参数说明:")
+        print("  --step1        - 仅执行Task1: PDF文本提取")
+        print("  --step2        - 仅执行Task2: LLM分析（需要配合--text使用）")
+        print("  --step3        - 仅执行Task3: 报告生成（需要配合--llm-data）")
+        print("  --llm-data     - LLM分析结果JSON字符串")
+        print("  --text / -t   - 直接传入论文文本内容")
+        print("  pdf_path       - 论文PDF文件路径")
+        print("  output_dir     - 可选，报告输出目录（默认当前目录）")
+        print()
+        print("串行Task工作流:")
+        print("  1. python3 paper_audit_script.py --step1 paper.pdf  # 提取PDF文本")
+        print("  2. [使用当前终端LLM分析论文，生成JSON]")
+        print("  3. python3 paper_audit_script.py --step3 --llm-data '{...}'  # 生成报告")
         sys.exit(1)
 
     # 解析参数
     pdf_path = None
     text_input = None
     output_dir = "."
+    step_mode = None
+    llm_data_json = None
 
     i = 1
     while i < len(sys.argv):
-        if sys.argv[i] == "--text" or sys.argv[i] == "-t":
+        if sys.argv[i] == "-h" or sys.argv[i] == "--help":
+            print("使用方法:")
+            print("  # 串行Task模式（推荐）:")
+            print("  python3 paper_audit_script.py --step1 <pdf_path> [output_dir]")
+            print("  python3 paper_audit_script.py --step3 --llm-data '<json>' [output_dir]")
+            print()
+            print("  # 一键执行模式:")
+            print("  python3 paper_audit_script.py <pdf_path> [output_dir]")
+            print()
+            print("  # 直接传入文本:")
+            print("  python3 paper_audit_script.py --text '<论文文本>'")
+            sys.exit(0)
+        elif sys.argv[i] == "--step1":
+            step_mode = "step1"
+            i += 1
+        elif sys.argv[i] == "--step2":
+            step_mode = "step2"
+            i += 1
+        elif sys.argv[i] == "--step3":
+            step_mode = "step3"
+            i += 1
+        elif sys.argv[i] == "--llm-data":
+            if i + 1 < len(sys.argv):
+                llm_data_input = sys.argv[i + 1]
+                # 如果是文件路径，读取文件内容
+                if os.path.isfile(llm_data_input):
+                    with open(llm_data_input, 'r', encoding='utf-8') as f:
+                        llm_data_json = f.read()
+                else:
+                    llm_data_json = llm_data_input
+                i += 2
+            else:
+                print("错误: --llm-data 需要一个值")
+                sys.exit(1)
+        elif sys.argv[i] == "--text" or sys.argv[i] == "-t":
             if i + 1 < len(sys.argv):
                 text_input = sys.argv[i + 1]
                 i += 2
@@ -720,6 +1103,40 @@ def main():
             output_dir = sys.argv[i]
             i += 1
 
+    # 串行Task模式
+    if step_mode == "step1":
+        # Task 1: 仅提取PDF文本
+        if pdf_path is None:
+            print("错误: Task1需要提供PDF文件路径")
+            sys.exit(1)
+        run_step1(pdf_path, output_dir)
+        sys.exit(0)
+
+    elif step_mode == "step2":
+        # Task 2: LLM分析（当前终端执行，这里仅打印提示）
+        print("=" * 60)
+        print("Task 2: LLM分析")
+        print("=" * 60)
+        print("请使用当前Claude Code终端的LLM能力分析论文")
+        print("并将结果以JSON格式传递给Task3:")
+        print("  python3 paper_audit_script.py --step3 --llm-data '<json>' [output_dir]")
+        sys.exit(0)
+
+    elif step_mode == "step3":
+        # Task 3: 仅生成报告
+        if llm_data_json is None:
+            print("错误: Task3需要提供--llm-data参数（JSON格式的LLM分析结果）")
+            sys.exit(1)
+        import json
+        try:
+            llm_data = json.loads(llm_data_json)
+        except json.JSONDecodeError as e:
+            print(f"错误: JSON解析失败: {e}")
+            sys.exit(1)
+        run_step3(llm_data, output_dir)
+        sys.exit(0)
+
+    # 一键执行模式
     if pdf_path is None and text_input is None:
         print("错误: 请提供PDF文件路径或文本内容")
         sys.exit(1)
@@ -727,17 +1144,8 @@ def main():
     try:
         result = run_full_audit(pdf_path=pdf_path, text=text_input, output_dir=output_dir)
         if result.get('report_path'):
-            print(f"\n📄 基础报告已生成:")
+            print(f"\n📄 论文内容审核报告已生成:")
             print(f"   {result['report_path']}")
-        if result.get('supp_report_path'):
-            print(f"\n📋 补充报告已生成:")
-            print(f"   {result['supp_report_path']}")
-        if result.get('md_report_path'):
-            print(f"\n📝 Markdown报告已生成:")
-            print(f"   {result['md_report_path']}")
-        if result.get('bilingual_md_report_path'):
-            print(f"\n🌐 中英双语Markdown报告已生成:")
-            print(f"   {result['bilingual_md_report_path']}")
     except FileNotFoundError:
         print(f"错误: 找不到文件 '{pdf_path}'")
         sys.exit(1)
